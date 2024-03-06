@@ -16,9 +16,15 @@
   RTC_DateTypeDef sdatestructure;
   RTC_TimeTypeDef stimestructure;
   RTC_AlarmTypeDef  alarmRtc;
+  
+  
+// SNTP
+struct tm sntp;
+static void time_callback (uint32_t seconds, uint32_t seconds_fraction);
 
 
 uint8_t segundos_tim=0;
+bool sincronizado = false;
 /************************************************
         hilo de alarma
 ***************************************************/
@@ -100,6 +106,9 @@ void RTC_Init(){
   HAL_RTC_Init(&RtcHandle);
   
 
+  
+  
+
 }
 
 
@@ -140,9 +149,9 @@ void RTC_CalendarShow(uint8_t *showtime, uint8_t *showdate)
   HAL_RTC_GetTime(&RtcHandle, &stimestructure, RTC_FORMAT_BIN);
 
   /* Display time Format : hh:mm:ss */
-  sprintf((char *)showtime, "%2d:%2d:%2d", stimestructure.Hours, stimestructure.Minutes, stimestructure.Seconds);
+  sprintf((char *)showtime, "%02d:%02d:%02d", stimestructure.Hours, stimestructure.Minutes, stimestructure.Seconds);
   /* Display date Format : mm-dd-yy */
-  sprintf((char *)showdate, "%2d-%2d-%2d", sdatestructure.Date, sdatestructure.Month, 2000 + sdatestructure.Year);
+  sprintf((char *)showdate, "%02d-%02d-%2d", sdatestructure.Date, sdatestructure.Month, 2000 + sdatestructure.Year);
   
 }
 
@@ -171,9 +180,6 @@ void RTC_AlarmConfig(void)
 
 
 
-
-
-
 static void Timer_Callback_1s (void const *arg) {
   
   segundos_tim++;
@@ -183,6 +189,50 @@ static void Timer_Callback_1s (void const *arg) {
 		osTimerStop(tim_1s);
 	}
 }
+
+
+
+/*-------------------SNTP-------------------------
+---------------------------------------------------*/
+void SNTP_init(void){
+  //osDelay(1000);
+  netSNTPc_GetTime (NULL, time_callback);
+  
+
+}
+  
+
+static void time_callback (uint32_t seconds, uint32_t seconds_fraction){
+  if (!sincronizado){
+    osDelay(5000);
+    sincronizado=true;
+  }
+  if (seconds != 0) {
+   sntp = *localtime(&seconds);
+   sdatestructure.Year = sntp.tm_year - 100;
+   sdatestructure.Month = sntp.tm_mon + 1;
+   sdatestructure.Date = sntp.tm_mday;
+   sdatestructure.WeekDay = sntp.tm_wday;
+  
+   HAL_RTC_SetDate(&RtcHandle,&sdatestructure,RTC_FORMAT_BIN);
+
+   stimestructure.Hours = sntp.tm_hour + 1 ;
+   stimestructure.Minutes = sntp.tm_min;
+   stimestructure.Seconds = sntp.tm_sec;
+   stimestructure.TimeFormat = RTC_HOURFORMAT_24;
+   stimestructure.DayLightSaving = sntp.tm_isdst ;
+   stimestructure.StoreOperation = RTC_STOREOPERATION_RESET;
+   
+	 HAL_RTC_SetTime(&RtcHandle, &stimestructure, RTC_FORMAT_BIN);
+	
+	   /*-3- Writes a data in a RTC Backup data Register1 */
+  HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_DR1, 0x32F2);
+  }
+}
+
+
+
+
 
 int Init_timers (void) {
 	exec = 1U;
@@ -198,6 +248,7 @@ int Init_timers (void) {
 		return(0);
 	}
 
+
  // Thread Alarma
 void ThAlarm (void *argument) {
   while (1) {
@@ -207,4 +258,19 @@ void ThAlarm (void *argument) {
 	  osThreadYield(); // suspend thread  
   }
 
+  
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
 }

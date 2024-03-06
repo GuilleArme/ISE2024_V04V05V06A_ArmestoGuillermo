@@ -16,9 +16,17 @@
   RTC_DateTypeDef sdatestructure;
   RTC_TimeTypeDef stimestructure;
   RTC_AlarmTypeDef  alarmRtc;
+  
+  
+// SNTP
+struct tm sntp;
+static void time_callback (uint32_t seconds, uint32_t seconds_fraction);
 
 
 uint8_t segundos_tim=0;
+uint8_t segundos_tim_2=0;
+bool sincronizado_inicial = false;
+bool sincronizado = false;
 /************************************************
         hilo de alarma
 ***************************************************/
@@ -28,6 +36,8 @@ void ThAlarm (void *argument);                   // thread function
 // timer
 static uint32_t exec;
 osTimerId_t tim_1s;
+osTimerId_t tim_2s;
+osTimerId_t tim_3m;
   
   
 /***Configuracion********/
@@ -100,6 +110,9 @@ void RTC_Init(){
   HAL_RTC_Init(&RtcHandle);
   
 
+  
+  
+
 }
 
 
@@ -128,6 +141,8 @@ void RTC_CalendarConfig(void)
   
   /*##-3- Writes a data in a RTC Backup data Register1 #######################*/
   HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_DR1, 0x32F2);
+  
+  osTimerStart(tim_3m, 1800000U);
 
 }
 
@@ -140,9 +155,9 @@ void RTC_CalendarShow(uint8_t *showtime, uint8_t *showdate)
   HAL_RTC_GetTime(&RtcHandle, &stimestructure, RTC_FORMAT_BIN);
 
   /* Display time Format : hh:mm:ss */
-  sprintf((char *)showtime, "%2d:%2d:%2d", stimestructure.Hours, stimestructure.Minutes, stimestructure.Seconds);
+  sprintf((char *)showtime, "%02d:%02d:%02d", stimestructure.Hours, stimestructure.Minutes, stimestructure.Seconds);
   /* Display date Format : mm-dd-yy */
-  sprintf((char *)showdate, "%2d-%2d-%2d", sdatestructure.Date, sdatestructure.Month, 2000 + sdatestructure.Year);
+  sprintf((char *)showdate, "%02d-%02d-%2d", sdatestructure.Date, sdatestructure.Month, 2000 + sdatestructure.Year);
   
 }
 
@@ -171,22 +186,84 @@ void RTC_AlarmConfig(void)
 
 
 
-
-
-
 static void Timer_Callback_1s (void const *arg) {
   
   segundos_tim++;
 	HAL_GPIO_TogglePin(GPIOB,GPIO_PIN_0);
-	if (segundos_tim==6){
+	if (segundos_tim==11){
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 		segundos_tim=0;
 		osTimerStop(tim_1s);
 	}
 }
 
+
+
+/*-------------------SNTP-------------------------
+---------------------------------------------------*/
+void SNTP_init(void){
+  if (!sincronizado_inicial){
+    osDelay(5000);
+    sincronizado_inicial=true;
+  }
+  netSNTPc_GetTime (NULL, time_callback);
+  
+  
+
+}
+  
+
+static void time_callback (uint32_t seconds, uint32_t seconds_fraction){
+  if (seconds != 0) {
+   sntp = *localtime(&seconds);
+   sdatestructure.Year = sntp.tm_year - 100;
+   sdatestructure.Month = sntp.tm_mon + 1;
+   sdatestructure.Date = sntp.tm_mday;
+   sdatestructure.WeekDay = sntp.tm_wday;
+  
+   HAL_RTC_SetDate(&RtcHandle,&sdatestructure,RTC_FORMAT_BIN);
+
+   stimestructure.Hours = sntp.tm_hour + 1 ;
+   stimestructure.Minutes = sntp.tm_min;
+   stimestructure.Seconds = sntp.tm_sec;
+   stimestructure.TimeFormat = RTC_HOURFORMAT_24;
+   stimestructure.DayLightSaving = sntp.tm_isdst ;
+   stimestructure.StoreOperation = RTC_STOREOPERATION_RESET;
+   
+	 HAL_RTC_SetTime(&RtcHandle, &stimestructure, RTC_FORMAT_BIN);
+	
+	   /*-3- Writes a data in a RTC Backup data Register1 */
+  HAL_RTCEx_BKUPWrite(&RtcHandle, RTC_BKP_DR1, 0x32F2);
+  }
+  osTimerStart(tim_2s, 400U); // cada 200ms, parpaderara durante 2 segundos
+}
+
+static void Timer_Callback_3m (void const *arg) {
+  SNTP_init();
+  
+
+}
+static void Timer_Callback_2s (void const *arg) {
+  segundos_tim_2++;
+	HAL_GPIO_TogglePin(GPIOB,GPIO_PIN_7);
+	if (segundos_tim_2==6){
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
+		segundos_tim_2=0;
+		osTimerStop(tim_2s);
+	}
+
+  
+  
+
+}
+/*-------------final SNTP-----------*/
+
+
 int Init_timers (void) {
 	exec = 1U;
 	tim_1s = osTimerNew((osTimerFunc_t)&Timer_Callback_1s, osTimerPeriodic, &exec, NULL);
+  tim_3m = osTimerNew((osTimerFunc_t)&Timer_Callback_3m, osTimerPeriodic, &exec, NULL);
+  tim_2s = osTimerNew((osTimerFunc_t)&Timer_Callback_2s, osTimerPeriodic, &exec, NULL);
 }
 
 	int Init_ThAlarm (void) {
@@ -198,13 +275,29 @@ int Init_timers (void) {
 		return(0);
 	}
 
+
  // Thread Alarma
 void ThAlarm (void *argument) {
   while (1) {
     ; // Insert thread code here...
 		osThreadFlagsWait(0x02, osFlagsWaitAny, osWaitForever);
-		osTimerStart(tim_1s, 1000U);			
+		osTimerStart(tim_1s, 500U); //500ms para que entre el doble de veces
 	  osThreadYield(); // suspend thread  
   }
 
+  
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
 }
